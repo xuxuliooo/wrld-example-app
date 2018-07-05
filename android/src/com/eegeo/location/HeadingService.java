@@ -1,223 +1,172 @@
-// Copyright eeGeo Ltd (2012-2015), All Rights Reserved
-
 package com.eegeo.location;
 
-import java.util.ArrayDeque;
-
-import android.app.Activity;
 import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.Looper;
+import android.view.OrientationEventListener;
 import android.view.Surface;
 import android.view.WindowManager;
 
-public class HeadingService implements SensorEventListener
-{
-    private SensorManager m_sensorManager;
-    private Activity m_activity;
-    private boolean m_hasAzimuthAngle = false;
-    private boolean m_listeningForUpdates = false;
+import com.eegeo.mapapi.INativeMessageRunner;
 
-    // The results from SensorManager.getOrientation appear to be worse than the results of
-    // the deprecated Sensor.TYPE_ORIENTATION on the test device. To enable SensorManager.getOrientation
-    // using the results of the Sensor.TYPE_GRAVITY and Sensor.TYPE_MAGNETIC_FIELD sensors, set
-    // this field to false. The results of this have high jitter, so a low-pass filter is used. Even
-    // then, the results appear to be inferior to Sensor.TYPE_ORIENTATION.
-    private final boolean m_useDeprecatedOrientationMethod = false;
+@SuppressWarnings("unused")
+public class HeadingService implements SensorEventListener {
+	private final int m_ctorThreadId;
 
-    // Used if m_useDeprecatedOrientationMethod == true.
-    private float m_azimuthDegrees = 0.f;
+	private final long m_nativeCallerPointer;
+	private Context m_context;
+	private final INativeMessageRunner m_nativeMessageRunner;
 
-    // Used if m_useDeprecatedOrientationMethod == false.
-    private float[] m_gravity = new float[3];
-    private float[] m_geomagnetic = new float[3];
+	private boolean m_listeningForUpdates = false;
+	private int m_deviceRotation;
 
-    public boolean hasHeading()
-    {
-        return m_hasAzimuthAngle;
-    }
+	private SensorManager m_sensorManager;
+	private OrientationEventListener m_orientationEventListener = null;
 
-    public double heading()
-    {
-        return m_azimuthDegrees;
-    }
+	// The results from SensorManager.getOrientation appear to be worse than the results of
+	// the deprecated Sensor.TYPE_ORIENTATION on the test device. To enable SensorManager.getOrientation
+	// using the results of the Sensor.TYPE_GRAVITY and Sensor.TYPE_MAGNETIC_FIELD sensors, set
+	// this field to false. The results of this have high jitter, so a low-pass filter is used. Even
+	// then, the results appear to be inferior to Sensor.TYPE_ORIENTATION.
+	private float m_azimuthDegrees = 0.f;
 
-    public HeadingService(Activity activity)
-    {
-        m_activity = activity;
-    }
+	private double heading() {
+		return m_azimuthDegrees;
+	}
 
-    public void startListening()
-    {
-        if (m_listeningForUpdates)
-        {
-            return;
-        }
+	private static int getThreadId() {
+		return android.os.Process.myTid();
+	}
 
-        m_listeningForUpdates = true;
+	private void throwIfCalledOnIncorrectThread() {
+		final int currentThreadId = getThreadId();
 
-        m_sensorManager = (SensorManager)m_activity.getSystemService(Context.SENSOR_SERVICE);
+		if (getThreadId() != m_ctorThreadId) {
+			final boolean isThisThreadUiThread = (Looper.getMainLooper().getThread() == Thread.currentThread());
 
-        if(m_useDeprecatedOrientationMethod)
-        {
-            @SuppressWarnings("deprecation")
-            Sensor orientation = m_sensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION);
-            m_sensorManager.registerListener(this, orientation, SensorManager.SENSOR_DELAY_GAME);
-        }
-        else
-        {
-            Sensor accelerometer = m_sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-            Sensor magnetometer = m_sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
-            m_sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
-            m_sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_GAME);
-        }
-    }
+			throw new IllegalThreadStateException(
+					"heading update was not called on a consistent thread. ctor was called on thread with id '" +
+							m_ctorThreadId + "', but the current thread has id '" + currentThreadId + "'" + ". Is current thread the ui thread? : " + isThisThreadUiThread);
+		}
+	}
 
-    public void stopListening()
-    {
-        if(m_listeningForUpdates)
-        {
-            m_sensorManager.unregisterListener(this);
-        }
-        m_listeningForUpdates = false;
-    }
+	@SuppressWarnings("unused")
+	public HeadingService(Context context,
+						  INativeMessageRunner nativeMessageRunner,
+						  long nativeCallerPointer) {
+		//noinspection ConstantConditions -- this doesn't actually throw when it's null
+		if(context == null) {
+			throw new NullPointerException("context");
+		}
 
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy)
-    {
+		//noinspection ConstantConditions -- this doesn't actually throw when it's null
+		if(nativeMessageRunner == null) {
+			throw new NullPointerException("nativeMessageRunner");
+		}
 
-    }
+		m_context = context;
+		m_nativeMessageRunner = nativeMessageRunner;
+		m_nativeCallerPointer = nativeCallerPointer;
+		m_ctorThreadId = getThreadId();
+		WindowManager systemService = (WindowManager) m_context.getSystemService(Context.WINDOW_SERVICE);
+		m_deviceRotation = systemService == null ? Surface.ROTATION_0 : systemService.getDefaultDisplay().getRotation();
+	}
 
-    @SuppressWarnings("deprecation")
-    @Override
-    public void onSensorChanged(SensorEvent event)
-    {
-        if(m_useDeprecatedOrientationMethod)
-        {
-            if (event.sensor.getType() == Sensor.TYPE_ORIENTATION)
-            {
-                float smoothing = 0.6f;
-                float heading = event.values[0];
-                float pitch = event.values[1];
-                float roll = event.values[2];
-                if (Float.isNaN(heading) || (heading == 0 && (Float.isNaN(pitch) || pitch == 0) && (Float.isNaN(roll) || roll == 0))) // Fix MPLY-4888 || Fix MPLY-7637
-                {
-                    return;
-                }
-                float newAzimuth = adjustHeadingForDeviceOrientation(heading);
-                
-                if(Math.abs(newAzimuth - m_azimuthDegrees) >= 180)
-                {
-                    if(newAzimuth > m_azimuthDegrees)
-                    {
-                        m_azimuthDegrees += 360.0f;
-                    }
-                    else
-                    {
-                        newAzimuth += 360.0f;
-                    }
-                }
-                m_azimuthDegrees = (float) ((newAzimuth * smoothing) + (m_azimuthDegrees * (1.0 - smoothing)));     
-                m_azimuthDegrees %= 360.0f;
-                m_hasAzimuthAngle = true;
-                return;
-            }
-        }
-        else
-        {
-            if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER)
-            {
-                m_gravity = event.values.clone();
-            }
+	@SuppressWarnings("unused")
+	public void startListening() {
+		throwIfCalledOnIncorrectThread();
 
-            if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD)
-            {
-                m_geomagnetic = event.values.clone();
-            }
+		if (m_listeningForUpdates) {
+			return;
+		}
 
-            if (m_gravity != null && m_geomagnetic != null)
-            {
-                float R[] = new float[9];
-                float I[] = new float[9];
-                boolean success = SensorManager.getRotationMatrix(R, I, m_gravity, m_geomagnetic);
-                if(success)
-                {
-                    float remap[] = new float[9];
-                    adjustHeadingForDeviceOrientation(R, remap);
-                    
-                    float orientation[] = new float[3];
-                    SensorManager.getOrientation(remap, orientation);
+		m_listeningForUpdates = true;
 
-                    float newAzimuth = (float) Math.toDegrees(orientation[0]);
-                    
-                    if(Math.abs(newAzimuth - m_azimuthDegrees) >= 180)
-                    {
-                        if(newAzimuth > m_azimuthDegrees)
-                        {
-                            m_azimuthDegrees += 360.0f;
-                        }
-                        else
-                        {
-                            newAzimuth += 360.0f;
-                        }
-                    }
-                    
-                    float threshold = 25f;
-                    float diff = m_azimuthDegrees - newAzimuth;
-                    diff /= threshold;
-                    diff = Math.min(diff, diff * diff);
-                    m_azimuthDegrees -= diff;
-                    m_azimuthDegrees = (m_azimuthDegrees + 360f) % 360;
-                    m_hasAzimuthAngle = true;
-                }
-            }
-        }
-    }
+		m_sensorManager = (SensorManager) m_context.getSystemService(Context.SENSOR_SERVICE);
 
-    private float adjustHeadingForDeviceOrientation(float heading)
-    {
-        final int rotation = ((WindowManager) this.m_activity.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRotation();
+		@SuppressWarnings("deprecation")
+		Sensor orientation = m_sensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION);
+		m_sensorManager.registerListener(HeadingService.this, orientation, SensorManager.SENSOR_DELAY_GAME);
 
-        switch (rotation)
-        {
-        case Surface.ROTATION_0:
-            heading += 0.f;
-            break;
-        case Surface.ROTATION_90:
-            heading += 90.f;
-            break;
-        case Surface.ROTATION_180:
-            heading += 180.f;
-            break;
-        default:
-            heading += 270.f;
-            break;
-        }
+		m_orientationEventListener = new OrientationEventListener(m_context, SensorManager.SENSOR_DELAY_NORMAL) {
+			@Override
+			public void onOrientationChanged(int orientation) {
+				m_deviceRotation = ((WindowManager) m_context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRotation();
+			}
+		};
+		m_orientationEventListener.enable();
+	}
 
-        heading = (heading + 360.f)%360.f;
-        return heading;
-    }
-    
-    private void adjustHeadingForDeviceOrientation(float rotationMatrix[], float remap[])
-    {
-    	final int rotation = ((WindowManager) this.m_activity.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRotation();
+	@SuppressWarnings("unused")
+	public void stopListening() {
+		throwIfCalledOnIncorrectThread();
 
-        switch (rotation)
-        {
-        case Surface.ROTATION_0:
-        	SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_X, SensorManager.AXIS_Y, remap);
-            break;
-        case Surface.ROTATION_90:
-        	SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_Y, SensorManager.AXIS_MINUS_X, remap);
-            break;
-        case Surface.ROTATION_180:
-        	SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_MINUS_X, SensorManager.AXIS_MINUS_Y, remap);
-            break;
-        default:
-        	SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, remap);
-            break;
-        }
-    }
+		if (m_listeningForUpdates) {
+			m_sensorManager.unregisterListener(HeadingService.this);
+			m_orientationEventListener.disable();
+		}
+		m_listeningForUpdates = false;
+	}
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+	}
+
+	@SuppressWarnings("deprecation")
+	@Override
+	public void onSensorChanged(SensorEvent event) {
+		if (event.sensor.getType() == Sensor.TYPE_ORIENTATION) {
+			float smoothing = 0.6f;
+			float heading = event.values[0];
+			if (Float.isNaN(heading)) // Fix MPLY-4888
+			{
+				return;
+			}
+			float newAzimuth = adjustHeadingForDeviceOrientation(heading);
+
+			if (Math.abs(newAzimuth - m_azimuthDegrees) >= 180) {
+				if (newAzimuth > m_azimuthDegrees) {
+					m_azimuthDegrees += 360.0f;
+				} else {
+					newAzimuth += 360.0f;
+				}
+			}
+			m_azimuthDegrees = (float) ((newAzimuth * smoothing) + (m_azimuthDegrees * (1.0 - smoothing)));
+			m_azimuthDegrees %= 360.0f;
+		}
+
+		updateNativeHeading(heading());
+	}
+
+	private float adjustHeadingForDeviceOrientation(float heading) {
+		switch (m_deviceRotation) {
+			case Surface.ROTATION_0:
+				heading += 0.f;
+				break;
+			case Surface.ROTATION_90:
+				heading += 90.f;
+				break;
+			case Surface.ROTATION_180:
+				heading += 180.f;
+				break;
+			default:
+				heading += 270.f;
+				break;
+		}
+
+		heading = (heading + 360.f) % 360.f;
+		return heading;
+	}
+
+	private void updateNativeHeading(final double heading) {
+		m_nativeMessageRunner.runOnNativeThread(new Runnable() {
+			public void run() {
+				HeadingServiceJniMethods.UpdateHeading(m_nativeCallerPointer, heading);
+			}
+		});
+	}
 }

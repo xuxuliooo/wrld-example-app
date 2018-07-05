@@ -1,13 +1,13 @@
+
 // Copyright eeGeo Ltd (2012-2015), All Rights Reserved
 
 #include "ViewController.h"
-#include "AppLocationDelegate.h"
 #include "MathFunc.h"
 #include "AppDelegate.h"
 #include "App.h"
 #include "DeviceHelpers.h"
 
-using namespace Eegeo::iOS;
+#import <CoreLocation/CoreLocation.h>
 
 @implementation ViewController
 
@@ -47,7 +47,7 @@ using namespace Eegeo::iOS;
 
 -(void) didBecomeActive
 {
-    if(m_pAppRunner != NULL)
+    if(m_pAppRunner != nullptr)
     {
         m_pAppRunner->RequestLocationPermission();
     }

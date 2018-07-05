@@ -8,8 +8,6 @@ set(currsources
   ios_src/AppHost.mm
   ios_src/AppInputDelegate.h
   ios_src/AppInputDelegate.mm
-  ios_src/AppLocationDelegate.h
-  ios_src/AppLocationDelegate.mm
   ios_src/AppUrlDelegate.h
   ios_src/AppUrlDelegate.mm
   ios_src/AppRunner.h
@@ -47,7 +45,6 @@ include(ios_src/SearchMenu/CMakeLists.txt)
 include(ios_src/SearchProviders/CMakeLists.txt)
 include(ios_src/SearchResultPoi/CMakeLists.txt)
 include(ios_src/SearchResultSection/CMakeLists.txt)
-include(ios_src/SenionLab/CMakeLists.txt)
 include(ios_src/Surveys/CMakeLists.txt)
 include(ios_src/TagSearch/CMakeLists.txt)
 include(ios_src/URLRequest/CMakeLists.txt)

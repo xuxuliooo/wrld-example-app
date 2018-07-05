@@ -2,19 +2,14 @@
 
 #pragma once
 
-#include "IndoorAtlasLocationController.h"
-#include "IndoorAtlasLocationManager.h"
-#include "IndoorAtlasLocationService.h"
-#include "iOSAlertBoxFactory.h"
-#include "ICallback.h"
-#include "AppModeModel.h"
+#include "IndoorAtlasIncludes.h"
+#include "AppModes.h"
 #include "InteriorsExplorer.h"
 #include "ApplicationConfiguration.h"
 #include "ILocationService.h"
 #include "BidirectionalBus.h"
-
-
-@class IndoorAtlasLocationManager;
+#include "Rendering.h"
+#include "InteriorMetaDataRepository.h"
 
 namespace ExampleApp
 {
@@ -24,6 +19,8 @@ namespace ExampleApp
         {
             namespace IndoorAtlas
             {
+                class IndoorAtlasLocationInterop;
+                
                 class IndoorAtlasLocationModule
                 {
                 public:
@@ -33,16 +30,15 @@ namespace ExampleApp
                                               const Eegeo::Rendering::EnvironmentFlatteningService& environmentFlatteningService,
                                               Eegeo::Location::ILocationService& defaultLocationService,
                                               Eegeo::Resources::Interiors::MetaData::InteriorMetaDataRepository& interiorMetaDataRepository,
-                                              Eegeo::UI::NativeAlerts::iOS::iOSAlertBoxFactory& iOSAlertBoxFactory,
-                                              ExampleAppMessaging::TMessageBus& messageBu);
+                                              ExampleAppMessaging::TMessageBus& messageBus);
                     ~IndoorAtlasLocationModule();
             
-                    IndoorAtlasLocationService& GetLocationService() { return *m_pLocationService; }
+                    IndoorAtlasLocationService& GetLocationService() const;
             
                 private:
-                    IndoorAtlasLocationController* m_pLocationController;
+                    IndoorAtlasLocationInterop* m_pIndoorAtlasLocationInterop;
                     IndoorAtlasLocationService* m_pLocationService;
-                    IndoorAtlasLocationManager* m_pLocationManager;
+                    IndoorAtlasLocationController* m_pLocationController;
                 };
             }
         }

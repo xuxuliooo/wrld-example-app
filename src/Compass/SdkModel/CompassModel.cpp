@@ -80,7 +80,7 @@ namespace ExampleApp
 
             void CompassModel::CycleToNextGpsMode()
             {
-                if(!m_locationService.GetIsAuthorized())
+                if(!m_locationService.IsLocationAuthorized())
                 {
                     DisableGpsMode();
                     m_gpsModeUnauthorizedCallbacks.ExecuteCallbacks();
@@ -133,7 +133,7 @@ namespace ExampleApp
 
             void CompassModel::TryUpdateToNavigationServiceGpsMode(Eegeo::Location::NavigationService::GpsMode value)
             {
-                if(!m_locationService.GetIsAuthorized())
+                if(!m_locationService.IsLocationAuthorized())
                 {
                     DisableGpsMode();
                     return;

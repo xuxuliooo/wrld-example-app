@@ -4,266 +4,266 @@ package com.eegeo.location;
 
 import java.util.List;
 
+import com.eegeo.mapapi.INativeMessageRunner;
 import com.eegeo.location.CombinedLocationApiService.FusedLocationUpdateListener;
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GooglePlayServicesUtil;
 
-import android.app.Activity;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.support.v4.app.ActivityCompat;
+import android.text.TextUtils;
 import android.util.Log;
 
-class LocationService
-{
-    static boolean isListening = false;
-    static boolean lastQuerySucceeded = false;
-    static boolean locationValid = false;
-    static Location bestLocation = null;
-    static boolean isAuthorized = false;
+@SuppressWarnings("unused")
+class LocationService {
+    private final long m_nativeCallerPointer;
+    private final INativeMessageRunner m_nativeMessageRunner;
+    private Location m_bestLocation = null;
+    private boolean m_isListening = false;
+    private boolean m_isAuthorized = false;
 
-    static CombinedLocationApiService m_combinedLocationApiService;
-    
-    public static double lat()
-    {
-        if (bestLocation == null)
-        {
-            return 0.0;
+    private CombinedLocationApiService m_combinedLocationApiService;
+
+    private Context m_context;
+
+    private LocationListener m_locationListener;
+    private LocationManager m_locationManager;
+
+    @SuppressWarnings("unused")
+    public LocationService(
+            Context context,
+            INativeMessageRunner nativeMessageRunner,
+            long nativeCallerPointer) {
+        if(context == null) {
+            throw new NullPointerException("context");
         }
-        return bestLocation.getLatitude();
-    }
 
-    public static double lon()
-    {
-        if (bestLocation == null)
-        {
-            return 0.0;
+        if(nativeMessageRunner == null) {
+            throw new NullPointerException("nativeMessageRunner");
         }
-        return bestLocation.getLongitude();
+
+        m_context = context;
+        m_nativeMessageRunner = nativeMessageRunner;
+        m_nativeCallerPointer = nativeCallerPointer;
+        m_isAuthorized = isLocationEnabled(m_context);
+
+        Log.v("Location", "ctor; is authorized? : " + m_isAuthorized);
+
+        // this could be re-entrant. Might be better to expose isAuthorized method and just call it
+        // from C++ the first time.
+        updateNativeAuthorized(m_isAuthorized);
     }
 
-    public static double alt()
-    {
-        if(bestLocation == null)
-        {
-            return 0.0;
+    // TODO: not sure which of these checks is the best
+    private static boolean isLocationEnabled(Context context) {
+        String locationProviders;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            try {
+                return Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.LOCATION_MODE) !=
+                        Settings.Secure.LOCATION_MODE_OFF;
+            } catch (Settings.SettingNotFoundException e) {
+                return false;
+            }
         }
-        return bestLocation.getAltitude();
+
+        locationProviders = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.LOCATION_PROVIDERS_ALLOWED);
+        return !TextUtils.isEmpty(locationProviders);
     }
 
-    public static boolean hasAlt()
-    {
-        if(bestLocation == null)
-        {
-            return false;
-        }
-        return bestLocation.hasAltitude();
+    private boolean hasUserGrantedLocationPermissions() {
+        final boolean hasFineLocationPermission =
+                ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+
+        final boolean hasCoarseLocationPermission =
+               ActivityCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+
+        Log.v("Location", "location: ACCESS_FINE_LOCATION permission = " + hasFineLocationPermission);
+        Log.v("Location", "location: ACCESS_COARSE_LOCATION permission = " + hasCoarseLocationPermission);
+
+        return hasFineLocationPermission && hasCoarseLocationPermission;
     }
 
-    public static double accuracy()
-    {
-        if(bestLocation == null)
-        {
-            return 0.0;
-        }
-        return bestLocation.getAccuracy();
-    }
+    @SuppressWarnings({"unused", "WeakerAccess"})
+    public void startListeningToUpdates() {
+        try {
+            if (m_isListening) {
+                return;
+            }
 
-    public static boolean hasAccuracy()
-    {
-        if(bestLocation == null)
-        {
-            return false;
-        }
-        return bestLocation.hasAccuracy();
-    }
-    
-    public static boolean getIsAuthorized()
-    {
-    	return isAuthorized;
-    }
+            setupListenerAndLocationManager();
+            forceLocationFromCachedProviders();
 
-    static LocationListener locationListener;
-    static LocationManager locationManager;
-
-    private static final int ONE_MINUTE = 1000 * 60;
-
-    private static String exception;
-    public static String exceptionMessage()
-    {
-        return exception;
-    }
-
-    public static boolean lastQuerySucceeded()
-    {
-        return bestLocation != null;
-    }
-
-    public static boolean locationValid()
-    {
-        return bestLocation != null;
-    }
-
-    public static void startListeningToUpdates(Activity a)
-    {
-        if (!isListening)
-        {
-            setupListenerAndLocationManager(a);
-            forceLocationFromCachedProviders(LocationService.locationManager);
-
-            try
-            {
-                if (LocationService.locationListener != null)
-                {
-                    LocationService.locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, LocationService.locationListener);
-                    LocationService.locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, LocationService.locationListener);
+            if (m_locationListener != null) {
+                if (!hasUserGrantedLocationPermissions()) {
+                    return;
                 }
+
+                Log.v("Location", "requesting location updates for GPS_PROVIDER & NETWORK_PROVIDER");
+                m_locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, m_locationListener);
+                m_locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, m_locationListener);
             }
-            catch (Exception e)
-            {
-                Log.v("Location", e.getMessage());
-            }
+        }
+        catch (Exception e)
+        {
+            Log.v("Location", e.getMessage());
         }
     }
 
-    public static void stopListeningToUpdates(Activity a)
+    @SuppressWarnings("unused")
+    public void stopListeningToUpdates()
     {
-        if(m_combinedLocationApiService != null)
-        {
+        if (m_combinedLocationApiService != null) {
             m_combinedLocationApiService.stopLocationUpdates();
-            isListening = false;
-        }
-        else if(isListening)
-        {
-            LocationService.locationManager.removeUpdates(LocationService.locationListener);
+            m_isListening = false;
+        } else if (m_isListening) {
             tearDownListener();
         }
     }
 
-    public static void updateLocation(Activity a)
+    private void forceLocationFromCachedProviders()
     {
-        if(GooglePlayServicesUtil.isGooglePlayServicesAvailable(a) == ConnectionResult.SUCCESS)
-        {
-            LocationService.locationManager = (LocationManager) a.getSystemService(Context.LOCATION_SERVICE);
-            LocationService.isListening = LocationService.isAuthorized = isAnyProviderEnabled(LocationService.locationManager);
-
-            if(m_combinedLocationApiService == null)
-            {
-                m_combinedLocationApiService = new CombinedLocationApiService(a, new FusedLocationUpdateListener()
-                {
-                    @Override
-                    public void onFusedLocationChanged(Location location)
-                    {
-                        LocationService.bestLocation = location;
-                    }
-                });
-            }
-            else
-            {
-                m_combinedLocationApiService.startListeningToUpdates();
-            }
-            if(LocationService.bestLocation == null)
-            {
-                forceLocationFromCachedProviders(LocationService.locationManager);
-            }
-        }
-        else
-        {
-            LocationService.startListeningToUpdates(a);
-        }
-    }
-
-    private static void forceLocationFromCachedProviders(LocationManager locationManager)
-    {
-        List<String> providers = locationManager.getProviders(true);
+        List<String> providers = m_locationManager.getProviders(true);
         Location bestCachedLocation = null;
         for (String provider : providers)
         {
-            Location l = locationManager.getLastKnownLocation(provider);
+            Location l = m_locationManager.getLastKnownLocation(provider);
+
             if (l == null)
             {
                 continue;
             }
+
             if (isBetterLocation(l, bestCachedLocation))
             {
                 bestCachedLocation = l;
             }
         }
 
-        LocationService.bestLocation = bestCachedLocation;
+        m_bestLocation = bestCachedLocation;
+
+        if(m_bestLocation != null) {
+            updateNativeLocation(
+                    m_bestLocation.getLatitude(),
+                    m_bestLocation.getLongitude(),
+                    m_bestLocation.getAltitude(),
+                    m_bestLocation.getAccuracy());
+        }
+
         Log.v("Location", "best location set from cache");
     }
 
-    private static void tearDownListener()
+    private void tearDownListener()
     {
-        if (LocationService.locationManager != null)
+        if (m_locationManager != null)
         {
-            LocationService.locationManager = null;
+            m_locationManager.removeUpdates(m_locationListener);
+            m_locationManager = null;
         }
-        if (LocationService.locationListener != null)
-        {
-            LocationService.locationListener = null;
-            isListening = false;
-        }
+
+        m_locationListener = null;
+        m_isListening = false;
     }
 
-    private static boolean isAnyProviderEnabled(LocationManager locationManager)
+    private boolean isAnyProviderEnabled()
     {
-    	if(locationManager == null)
+    	if(m_locationManager == null)
     	{
     		return false;
     	}
     	
-    	boolean gpsIsAuthorized = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
-    	boolean networkIsAuthorized = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+    	boolean gpsIsAuthorized = m_locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+    	boolean networkIsAuthorized = m_locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
     	return (gpsIsAuthorized || networkIsAuthorized);
     }
     
-    private static void setupListenerAndLocationManager(Activity a)
+    private void setupListenerAndLocationManager()
     {
-        LocationService.locationManager = (LocationManager) a.getSystemService(Context.LOCATION_SERVICE);
+        m_locationManager = (LocationManager) m_context.getSystemService(Context.LOCATION_SERVICE);
+        m_isAuthorized = isAnyProviderEnabled();
 
-        LocationService.isAuthorized = isAnyProviderEnabled(LocationService.locationManager);
-        
-        if (LocationService.locationListener == null)
-        {
-            LocationService.locationListener = new LocationListener()
-            {
+        final int resultCode = GoogleApiAvailability
+                .getInstance()
+                .isGooglePlayServicesAvailable(m_context);
 
-                public void onLocationChanged(Location location)
-                {
-                    if (isBetterLocation(location, LocationService.bestLocation))
-                    {
-                        LocationService.bestLocation = location;
-                        Log.v("Location", "best updated from onLocationChanged : " + location.getLatitude() + " , " + location.getLongitude());
-                    }
-                }
+        if(resultCode == ConnectionResult.SUCCESS) {
+            if(m_combinedLocationApiService == null) {
+                CreateCombinedLocationService();
+            }
+            else {
+                m_combinedLocationApiService.startListeningToUpdates();
+            }
 
-                public void onStatusChanged(String provider, int status, Bundle extras)
-                {
-                    Log.v("Location", "onStatusChanged");
-                }
-
-                public void onProviderEnabled(String provider)
-				{
-					LocationService.isAuthorized = isAnyProviderEnabled(LocationService.locationManager);
-					Log.v("Location", "onProviderEnabled, LocationService.isAuthorized : " + LocationService.isAuthorized);
-				}
-				
-				public void onProviderDisabled(String provider)
-				{
-					LocationService.isAuthorized = isAnyProviderEnabled(LocationService.locationManager);
-					Log.v("Location", "onProviderDisabled, LocationService.isAuthorized : " + LocationService.isAuthorized);
-				}        	   
-            };
+            if(m_bestLocation == null) {
+                forceLocationFromCachedProviders();
+            }
         }
-        isListening = true;
+        else
+        {
+           if (m_locationListener == null) {
+               CreateFallbackLocationListener();
+           }
+        }
+        m_isListening = true;
+    }
+
+    private void CreateCombinedLocationService() {
+        Log.v("Location", "Creating CombinedLocationApiService");
+        m_combinedLocationApiService = new CombinedLocationApiService(m_context, new FusedLocationUpdateListener()
+        {
+            @Override
+            public void onFusedLocationChanged(Location location)
+            {
+                m_bestLocation = location;
+                updateNativeLocation(
+                        location.getLatitude(),
+                        location.getLongitude(),
+                        location.getAltitude(),
+                        location.getAccuracy());
+            }
+        });
+    }
+
+    private void CreateFallbackLocationListener() {
+        Log.v("Location", "Creating LocationListener as a fallback");
+        m_locationListener = new LocationListener() {
+            public void onLocationChanged(Location location) {
+                if (isBetterLocation(location, m_bestLocation)) {
+                    m_bestLocation = location;
+                    updateNativeLocation(location.getLatitude(), location.getLongitude(), location.getAltitude(), location.getAccuracy());
+                    Log.v("Location", "best updated from onLocationChanged : " + location.getLatitude() + " , " + location.getLongitude());
+                }
+            }
+
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+                Log.v("Location", "onStatusChanged");
+            }
+
+            public void onProviderEnabled(String provider) {
+                m_isAuthorized = isAnyProviderEnabled();
+                updateNativeAuthorized(m_isAuthorized);
+                Log.v("Location", "onProviderEnabled, LocationService.m_isAuthorized : " + m_isAuthorized);
+            }
+
+            public void onProviderDisabled(String provider) {
+                m_isAuthorized = isAnyProviderEnabled();
+                updateNativeAuthorized(m_isAuthorized);
+                Log.v("Location", "onProviderDisabled, LocationService.m_isAuthorized : " + m_isAuthorized);
+            }
+        };
     }
 
     // Hoick http://developer.android.com/guide/topics/location/strategies.html
-    protected static boolean isBetterLocation(Location location, Location currentBestLocation)
+    private boolean isBetterLocation(Location location, Location currentBestLocation)
     {
         if (currentBestLocation == null)
         {
@@ -273,6 +273,9 @@ class LocationService
 
         // Check whether the new location fix is newer or older
         long timeDelta = location.getTime() - currentBestLocation.getTime();
+
+        final int ONE_MINUTE = 1000 * 60;
+
         boolean isSignificantlyNewer = timeDelta > ONE_MINUTE;
         boolean isSignificantlyOlder = timeDelta < -ONE_MINUTE;
         boolean isNewer = timeDelta > 0;
@@ -323,5 +326,36 @@ class LocationService
             return provider2 == null;
         }
         return provider1.equals(provider2);
+    }
+
+    private void updateNativeLocation(
+            final double latitudeDegrees,
+            final double longitudeDegrees,
+            final double altitudeMeters,
+            final double horizontalAccuracyMeters)
+    {
+        //m_nativeMessageRunner.runOnNativeThread(new Runnable()
+        //{
+        //    public void run() {
+                LocationServiceJniMethods.UpdateLocation(
+                        m_nativeCallerPointer,
+                        latitudeDegrees,
+                        longitudeDegrees,
+                        altitudeMeters,
+                        horizontalAccuracyMeters);
+        //    }
+        //});
+    }
+
+    private void updateNativeAuthorized(final boolean isAuthorized)
+    {
+        //m_nativeMessageRunner.runOnNativeThread(new Runnable() {
+        //    public void run()
+        //   {
+                LocationServiceJniMethods.UpdateAuthorized(
+                        m_nativeCallerPointer,
+                        isAuthorized);
+        //    }
+        //});
     }
 }

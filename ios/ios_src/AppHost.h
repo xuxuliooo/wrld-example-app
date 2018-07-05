@@ -14,7 +14,6 @@
 #include "iOSAlertBoxFactory.h"
 #include "NativeUIFactories.h"
 #include "AppInputDelegate.h"
-#include "AppLocationDelegate.h"
 #include "Modules.h"
 #include "MobileExampleApp.h"
 #include "InitialExperience.h"
@@ -49,8 +48,8 @@
 #include "SurveyViewIncludes.h"
 #include "IMenuReactionModel.h"
 #include "TagSearchViewIncludes.h"
-#include "IndoorAtlasLocationModule.h"
-#include "SenionLabLocationModule.h"
+#include "IndoorAtlasIncludes.h"
+#include "SenionLabIncludes.h"
 #include "CurrentLocationService.h"
 #include "InteriorsLocationServiceModule.h"
 #include "AppUrlDelegate.h"
@@ -59,10 +58,10 @@
 #include "iOSAutomatedScreenshotController.h"
 #include "NavWidgetViewIncludes.h"
 #include "NavWidgetViewModule.h"
+#include "iOSLocationService.h"
 
 @class ViewController;
 class AppInputDelegate;
-class AppLocationDelegate;
 class AppUrlDelegate;
 
 class AppHost : public Eegeo::IEegeoErrorHandler, protected Eegeo::NonCopyable
@@ -106,7 +105,6 @@ private:
     Eegeo::iOS::iOSLocationService* m_piOSLocationService;
     Eegeo::iOS::iOSConnectivityService* m_piOSConnectivityService;
     AppInputDelegate* m_pAppInputDelegate;
-    AppLocationDelegate* m_pAppLocationDelegate;
     AppUrlDelegate* m_pAppUrlDelegate;
 
     Eegeo::UI::NativeInput::iOS::iOSInputBoxFactory m_iOSInputBoxFactory;
@@ -116,7 +114,7 @@ private:
     Eegeo::iOS::iOSPlatformAbstractionModule* m_piOSPlatformAbstractionModule;
     
     ExampleApp::InteriorsPosition::SdkModel::IndoorAtlas::IndoorAtlasLocationModule* m_pIndoorAtlasLocationModule;
-    ExampleApp::SenionLab::SenionLabLocationModule* m_pSenionLabLocationModule;
+    ExampleApp::InteriorsPosition::SdkModel::SenionLab::SenionLabLocationModule* m_pSenionLabLocationModule;
     Eegeo::Helpers::CurrentLocationService::CurrentLocationService* m_pCurrentLocationService;
     ExampleApp::InteriorsPosition::SdkModel::InteriorsLocationServiceModule* m_pInteriorsLocationServiceModule;
 

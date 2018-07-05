@@ -7,7 +7,7 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
 import android.Manifest;
-import android.app.Activity;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
@@ -18,8 +18,8 @@ public class CombinedLocationApiService
         implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener
 {
 
-    private Activity m_activity;
-    private static final String TAG = "CombinedLocationApiService";
+    private Context m_context;
+    private static final String TAG = "CombinedLocationService";
 
     private static final long UPDATE_INTERVAL_IN_MILLISECONDS = 1000 * 5;
     private static final long FASTEST_UPDATE_INTERVAL_IN_MILLISECONDS = 1000 * 1;
@@ -29,10 +29,10 @@ public class CombinedLocationApiService
     private Location m_currentLocation;
     private FusedLocationUpdateListener m_fusedLocationUpdateListener;
 
-    public CombinedLocationApiService(Activity activity, FusedLocationUpdateListener fusedLocationUpdateListener)
+    public CombinedLocationApiService(Context context, FusedLocationUpdateListener fusedLocationUpdateListener)
     {
-        this.m_activity = activity;
-        this.m_fusedLocationUpdateListener = fusedLocationUpdateListener;
+        m_context = context;
+        m_fusedLocationUpdateListener = fusedLocationUpdateListener;
         startListeningToUpdates();
     }
 
@@ -43,15 +43,16 @@ public class CombinedLocationApiService
 
     private synchronized void buildGoogleApiClient()
     {
-        if(ContextCompat.checkSelfPermission(m_activity,
-                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+        if(ContextCompat.checkSelfPermission(m_context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
         {
             return;
         }
         if(m_googleApiClient == null)
         {
-            m_googleApiClient = new GoogleApiClient.Builder(m_activity).addConnectionCallbacks(this)
-                    .addOnConnectionFailedListener(this).addApi(LocationServices.API).build();
+            m_googleApiClient = new GoogleApiClient.Builder(m_context)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API).build();
         }
         createLocationRequest();
     }
@@ -107,8 +108,8 @@ public class CombinedLocationApiService
             Log.v(TAG, "Connected to GoogleApiClient");
             if (m_currentLocation == null) {
                 m_currentLocation = LocationServices.FusedLocationApi.getLastLocation(m_googleApiClient);
-                if (this.m_fusedLocationUpdateListener != null && m_currentLocation != null) {
-                    this.m_fusedLocationUpdateListener.onFusedLocationChanged(m_currentLocation);
+                if (m_fusedLocationUpdateListener != null && m_currentLocation != null) {
+                    m_fusedLocationUpdateListener.onFusedLocationChanged(m_currentLocation);
                 }
             }
             startLocationUpdates();
@@ -120,9 +121,9 @@ public class CombinedLocationApiService
     {
         Log.v(TAG, "onLocationChanged , " + location.getLatitude() + " : " + location.getLongitude());
         m_currentLocation = location;
-        if(this.m_fusedLocationUpdateListener != null)
+        if(m_fusedLocationUpdateListener != null)
         {
-            this.m_fusedLocationUpdateListener.onFusedLocationChanged(m_currentLocation);
+            m_fusedLocationUpdateListener.onFusedLocationChanged(m_currentLocation);
         }
     }
 
@@ -144,6 +145,6 @@ public class CombinedLocationApiService
 
     public interface FusedLocationUpdateListener
     {
-        public void onFusedLocationChanged(Location location);
+        void onFusedLocationChanged(Location location);
     }
 }
